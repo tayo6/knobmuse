@@ -1,0 +1,10 @@
+[package]
+name = "gradient-knob"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+eframe = "0.27"
+egui = "0.27"
+emath = "0.27"
+epaint = { version = "0.27", features = ["default"] }
