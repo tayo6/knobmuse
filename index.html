@@ -1,26 +1,7 @@
 <!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Gradient Knob</title>
-  <style>
-    html, body { margin:0; padding:0; height:100%; background:#0a0a0b; }
-    body { display:flex; align-items:center; justify-content:center; }
-    #the_canvas_id { width:320px; height:400px; outline:none; border-radius:16px; background:#111113; }
-    .loading { position:fixed; inset:0; display:flex; align-items:center; justify-content:center; color:#9ca3af; font:14px ui-monospace, monospace; }
-  </style>
-  <link data-trunk rel="rust" data-bin="gradient-knob" />
-</head>
-<body>
-  <div class="loading" id="loading">loading wasm…</div>
-  <canvas id="the_canvas_id"></canvas>
-  <script>
-    // hide loading once canvas has size
-    const i = setInterval(()=>{
-      const c = document.getElementById('the_canvas_id');
-      if(c && c.width>0){ document.getElementById('loading')?.remove(); clearInterval(i); }
-    }, 100);
-  </script>
-</body>
-</html>
+<html lang="en"><head><meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Gradient Knob</title>
+<link data-trunk rel="rust" data-wasm-opt="2" href="Cargo.toml" data-bin="gradient-knob"/>
+<style>html,body{margin:0;height:100%;background:#0a0a0f;overflow:hidden}canvas{width:100%!important;height:100%!important;display:block;outline:none}</style>
+</head><body><canvas id="the_canvas_id"></canvas></body></html>
