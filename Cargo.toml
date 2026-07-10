@@ -2,9 +2,10 @@
 name = "gradient-knob"
 version = "0.1.0"
 edition = "2021"
- 
+
 [dependencies]
-eframe = { version = "0.27" }
+eframe = { version = "0.27", features = ["default"] }
 egui = "0.27"
-# No web-sys needed - eframe re-exports what you need
-# Haptics replaced by visual pulse
+log = "0.4"
+wasm-bindgen = "0.12"
+wasm-bindgen-futures = "0.4"
