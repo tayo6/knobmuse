@@ -1,232 +1,126 @@
-use eframe::egui::{self, Color32, Pos2, Sense, Stroke, epaint::PathShape};
+use eframe::egui::{self, Color32, Pos2, Shape, Stroke, Vec2, Sense, epaint::PathShape};
 use std::f32::consts::TAU;
-
-fn lerp_u8(a: u8, b: u8, t: f32) -> u8 {
-    ((a as f32) * (1.0 - t) + (b as f32) * t).round().clamp(0.0, 255.0) as u8
-}
 
 fn lerp_color(t: f32) -> Color32 {
     let t = t.clamp(0.0, 1.0);
-    // green [34,197,94] -> yellow [250,204,21] -> red [220,38,38]
-    if t < 0.5 {
-        let lt = t * 2.0;
+    if t <= 0.5 {
+        let k = t * 2.0;
         Color32::from_rgb(
-            lerp_u8(34, 250, lt),
-            lerp_u8(197, 204, lt),
-            lerp_u8(94, 21, lt),
+            (34.0 + (250.0-34.0)*k) as u8,
+            (197.0 + (204.0-197.0)*k) as u8,
+            (94.0 + (21.0-94.0)*k) as u8,
         )
     } else {
-        let lt = (t - 0.5) * 2.0;
+        let k = (t-0.5)*2.0;
         Color32::from_rgb(
-            lerp_u8(250, 220, lt),
-            lerp_u8(204, 38, lt),
-            lerp_u8(21, 38, lt),
+            (250.0 + (220.0-250.0)*k) as u8,
+            (204.0 + (38.0-204.0)*k) as u8,
+            (21.0 + (38.0-21.0)*k) as u8,
         )
     }
 }
 
-fn angle_to_pos(center: Pos2, r: f32, ang: f32) -> Pos2 {
-    Pos2::new(center.x + ang.cos() * r, center.y + ang.sin() * r)
+fn angle_to_pos(c: Pos2, r: f32, a: f32) -> Pos2 {
+    Pos2::new(c.x + a.cos()*r, c.y + a.sin()*r)
+}
+fn arc_points(c: Pos2, r: f32, s: f32, e: f32, n: usize) -> Vec<Pos2> {
+    (0..=n).map(|i| {
+        let t = i as f32 / n as f32;
+        angle_to_pos(c, r, s + (e-s)*t)
+    }).collect()
 }
 
-fn arc_points(center: Pos2, r: f32, start: f32, end: f32, segs: usize) -> Vec<Pos2> {
-    let mut pts = Vec::with_capacity(segs + 1);
-    for i in 0..=segs {
-        let t = i as f32 / segs as f32;
-        let a = start + (end - start) * t;
-        pts.push(angle_to_pos(center, r, a));
-    }
-    pts
-}
-
-struct GradientKnobApp {
-    value: f32,
-    last_tick: i32,
-    pulse_t: f32,
-}
-
-impl Default for GradientKnobApp {
-    fn default() -> Self {
-        Self {
-            value: 42.0,
-            last_tick: -1,
-            pulse_t: 0.0,
-        }
-    }
-}
+#[derive(Default)]
+struct GradientKnobApp { value: f32, pulse_t: f32 }
 
 impl eframe::App for GradientKnobApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn update(&mut self, ctx: &egui::Context, _f: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.vertical_centered(|ui| {
-                ui.add_space(24.0);
-                ui.heading("Gradient Knob");
-                ui.label(format!("{:.0}%", self.value));
-                ui.add_space(12.0);
+            let desired = Vec2::splat(220.0);
+            let (rect, resp) = ui.allocate_exact_size(desired, Sense::click_and_drag);
+            let center = rect.center();
+            let radius = 82.0_f32;
+            let stroke_w = 15.0_f32;
+            const START: f32 = 120.0_f32 * std::f32::consts::PI / 180.0;
+            const END: f32 = 420.0_f32 * std::f32::consts::PI / 180.0;
+            const SWEEP: f32 = 300.0_f32 * std::f32::consts::PI / 180.0;
+            let grey = Color32::from_rgb(209,213,219);
 
-                // fixed 220x220 interaction area
-                let (rect, response) = ui.allocate_exact_size(
-                    egui::vec2(220.0_f32, 220.0_f32),
-                    Sense::drag(),
-                );
-                let center = rect.center();
-                let r = 80.0_f32;
-
-                // drag handling -> angle -> value
-                if response.dragged() {
-                    if let Some(pos) = response.interact_pointer_pos() {
-                        let delta = pos - center;
-                        let mut angle_deg = delta.y.atan2(delta.x).to_degrees();
-                        // normalize 0..360, egui atan2 gives -180..180, with 0 = right
-                        if angle_deg < 0.0 { angle_deg += 360.0; }
-
-                        // Gap is 60deg centered at bottom: 60° to 120° is dead zone
-                        // Active arc: 120° -> 420° (=60°) = 300° sweep
-                        // We snap values that fall in gap to nearest edge
-                        let snapped_deg = if (60.0_f32..120.0_f32).contains(&angle_deg) {
-                            if angle_deg < 90.0 { 60.0_f32 } else { 120.0_f32 }
-                        } else {
-                            angle_deg
-                        };
-
-                        let norm_deg = if snapped_deg >= 120.0_f32 {
-                            snapped_deg - 120.0_f32
-                        } else {
-                            // 0..60 maps to 240..300
-                            snapped_deg + 240.0_f32
-                        };
-
-                        let new_value = (norm_deg / 300.0_f32 * 100.0_f32).clamp(0.0_f32, 100.0_f32);
-                        let new_tick = (new_value / 2.5_f32).round() as i32; // 40 steps -> haptics
-                        if new_tick != self.last_tick {
-                            self.last_tick = new_tick;
-                            self.pulse_t = 1.0_f32;
-                            // optional haptic on web
-                            #[cfg(target_arch = "wasm32")]
-                            {
-                                if let Some(win) = web_sys::window() {
-                                    let _ = win.navigator().vibrate_with_duration(10);
-                                }
-                            }
-                        }
-                        self.value = new_value;
-                    }
+            if resp.dragged() {
+                if let Some(p) = resp.interact_pointer_pos() {
+                    let v = p - center;
+                    let mut ang = v.angle(); // -PI..PI
+                    if ang < 0.0 { ang += TAU; }
+                    let deg = ang.to_degrees();
+                    let new_val = if deg >= 120.0 { (deg-120.0)/300.0*100.0 }
+                                  else if deg <= 60.0 { (deg+240.0)/300.0*100.0 }
+                                  else if deg < 90.0 { 0.0 } else { 100.0 };
+                    self.value = new_val.clamp(0.0,100.0);
+                    self.pulse_t = 1.0;
                 }
+            }
+            let cur_t = self.value/100.0;
+            let cur_ang = START + cur_t * SWEEP;
+            let cur_col = lerp_color(cur_t);
+            let painter = ui.painter_at(rect);
 
-                // derived state hoisted for whole scope (fixes current_t out of scope)
-                let current_t = self.value / 100.0_f32;
-                let current_angle_rad = 120.0_f32.to_radians() + current_t * 300.0_f32.to_radians();
-                let current_color = lerp_color(current_t);
-                let start_angle = 120.0_f32.to_radians();
-                let end_angle = 420.0_f32.to_radians(); // 60 deg = 360+60
-
-                let painter = ui.painter_at(rect);
-
-                // 1) inactive track: from current to end (grey)
-                if current_t < 0.999_f32 {
-                    let inactive_pts = arc_points(center, r, current_angle_rad, end_angle, 48);
-                    painter.add(PathShape {
-                        points: inactive_pts,
-                        closed: false,
-                        fill: Color32::TRANSPARENT,
-                        stroke: Stroke::new(15.0_f32, Color32::from_rgb(209, 213, 219)),
-                    });
+            // inactive grey
+            if cur_ang < END - 0.001 {
+                let pts = arc_points(center, radius, cur_ang, END, 48);
+                painter.add(Shape::Path(PathShape{ points: pts, closed:false, fill: Color32::TRANSPARENT, stroke: Stroke::new(stroke_w, grey)}));
+            }
+            // active gradient
+            if self.value > 0.1 {
+                let steps = 75;
+                for i in 0..steps {
+                    let a0 = START + i as f32/steps as f32 * (cur_ang-START);
+                    let a1 = START + (i+1) as f32/steps as f32 * (cur_ang-START);
+                    let tmid = (a0+a1)*0.5 - START;
+                    let col = lerp_color(tmid / SWEEP);
+                    painter.line_segment([angle_to_pos(center,radius,a0), angle_to_pos(center,radius,a1)], Stroke::new(stroke_w, col));
                 }
-
-                // 2) active gradient track: 75 segments from start to current
-                let segs = 75usize;
-                for i in 0..segs {
-                    let t0 = i as f32 / segs as f32;
-                    let t1 = (i + 1) as f32 / segs as f32;
-                    // only draw up to current_t
-                    if t0 > current_t { break; }
-                    let ct1 = t1.min(current_t);
-                    let global_t0 = t0; // global progress 0..1 corresponds to t along arc
-                    // color by global position, not capped, to keep smooth gradient
-                    let a0 = start_angle + t0 * 300.0_f32.to_radians();
-                    let a1 = start_angle + ct1 * 300.0_f32.to_radians();
-                    let p0 = angle_to_pos(center, r, a0);
-                    let p1 = angle_to_pos(center, r, a1);
-                    let col = lerp_color(global_t0);
-                    painter.line_segment([p0, p1], Stroke::new(15.0_f32, col));
-                }
-
-                // round caps
-                let cap_r = 7.5_f32;
-                let start_pos = angle_to_pos(center, r, start_angle);
-                painter.circle_filled(start_pos, cap_r, lerp_color(0.0_f32));
-                let current_pos = angle_to_pos(center, r, current_angle_rad);
-                painter.circle_filled(current_pos, cap_r, current_color);
-
-                // 3) outer ticks (41 ticks)
-                let tick_count = 41usize;
-                let inner_r = 96.0_f32;
-                let outer_r = 104.0_f32;
-                for i in 0..tick_count {
-                    let t = i as f32 / (tick_count as f32 - 1.0_f32);
-                    let ang = start_angle + t * 300.0_f32.to_radians();
-                    let dist = (t - current_t).abs();
-                    let active = dist < 0.12_f32;
-                    let scale = if active {
-                        1.0_f32 + (0.12_f32 - dist) / 0.12_f32 * 0.7_f32
-                    } else {
-                        1.0_f32
-                    };
-                    let col = if active {
-                        lerp_color(t)
-                    } else {
-                        Color32::from_rgb(156, 163, 175)
-                    };
-                    let len = (outer_r - inner_r) * scale;
-                    let p_inner = angle_to_pos(center, inner_r, ang);
-                    let p_outer = angle_to_pos(center, inner_r + len, ang);
-                    painter.line_segment([p_inner, p_outer], Stroke::new(1.5_f32 * scale, col));
-                }
-
-                // 4) center knob
-                let mut base_r = 13.0_f32;
-                // pulse animation - fixed: unstable_dt is f32, not Option
-                self.pulse_t -= ctx.input(|i| i.unstable_dt) * 12.5_f32; // 80ms decay
-                if self.pulse_t > 0.0_f32 {
-                    base_r += self.pulse_t * 3.0_f32;
-                }
-                let handle_pos = center;
-                painter.circle_filled(handle_pos, base_r + 2.0_f32, current_color);
-                painter.circle_filled(handle_pos, base_r, Color32::WHITE);
-                painter.circle_stroke(handle_pos, base_r, Stroke::new(3.0_f32, current_color));
-
-                // value text already above, but also draw inside for polish
-                // (no extra scope issues)
-            });
+                painter.circle_filled(angle_to_pos(center,radius,START), stroke_w*0.5, lerp_color(0.0));
+                painter.circle_filled(angle_to_pos(center,radius,cur_ang), stroke_w*0.5, cur_col);
+            }
+            // ticks 41
+            for i in 0..=40 {
+                let t = i as f32/40.0;
+                let ang = START + t*SWEEP;
+                let base_len = if i%10==0 {14.0} else if i%5==0 {10.0} else {6.0};
+                let dist = (t-cur_t).abs();
+                let scale = if dist<0.12 {1.0+(0.12-dist)/0.12*0.7} else {1.0};
+                let len = base_len*scale;
+                let col = if t<=cur_t { lerp_color(t) } else { grey };
+                let p1 = angle_to_pos(center,96.0,ang);
+                let p2 = angle_to_pos(center,96.0+len,ang);
+                painter.line_segment([p1,p2], Stroke::new(if i%10==0 {2.6} else {1.4}*scale, col));
+            }
+            // knob
+            let pulse = self.pulse_t.clamp(0.0,1.0);
+            let r = 13.0 + pulse*1.5;
+            let pos = angle_to_pos(center,radius,cur_ang);
+            painter.circle_filled(pos, r+3.0, cur_col.linear_multiply(0.25));
+            painter.circle_filled(pos, r, Color32::WHITE);
+            painter.circle_stroke(pos, r, Stroke::new(3.0, cur_col));
+            self.pulse_t -= ctx.input(|i| i.unstable_dt) * 12.5;
+            ui.allocate_space(desired);
         });
     }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(target_arch="wasm32"))]
 fn main() -> eframe::Result<()> {
-    let opts = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size([320.0_f32, 400.0_f32]),
-        ..Default::default()
+    let opts = eframe::NativeOptions{
+        viewport: egui::ViewportBuilder::default().with_inner_size([360.0,420.0]),
+       ..Default::default()
     };
-    eframe::run_native(
-        "Gradient Knob",
-        opts,
-        Box::new(|_cc| Box::new(GradientKnobApp::default())),
-    )
+    eframe::run_native("Gradient Knob", opts, Box::new(|_| Box::new(GradientKnobApp::default())))
 }
-
-#[cfg(target_arch = "wasm32")]
-fn main() {
+#[cfg(target_arch="wasm32")]
+fn main(){
     eframe::WebLogger::init(log::LevelFilter::Debug).ok();
     let web_options = eframe::WebOptions::default();
-    wasm_bindgen_futures::spawn_local(async move {
-        eframe::WebRunner::new()
-            .start(
-                "the_canvas_id",
-                web_options,
-                Box::new(|_cc| Box::new(GradientKnobApp::default())),
-            )
-            .await
-            .expect("failed to start eframe");
+    wasm_bindgen_futures::spawn_local(async move{
+        eframe::WebRunner::new().start("the_canvas_id", web_options, Box::new(|_| Box::new(GradientKnobApp::default()))).await.expect("fail");
     });
 }
