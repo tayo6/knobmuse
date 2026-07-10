@@ -4,7 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-eframe = "0.27"
+eframe = { version = "0.27", features = ["default"] }
 egui = "0.27"
-emath = "0.27"
-epaint = { version = "0.27", features = ["default"] }
+log = "0.4"
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+web-sys = { version = "0.3", features = ["Vibrate"] }
